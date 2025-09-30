@@ -10,6 +10,7 @@ type UserInfoType = {
 }
 interface Room {
     sockets: WebSocket[]
+    users: { username: string, socket: WebSocket }[]
 }
 
 interface UserType {
@@ -76,41 +77,107 @@ relayerSocket.onmessage = (event) => {
     const parsedMessage = JSON.parse(message);
     console.log('Recieved from Relayer : ', parsedMessage)
 
-    if (parsedMessage.type == 'chat') {
+    // if (parsedMessage.type == 'chat') {
 
 
-        const room = parsedMessage.payload.roomId;
-        const sender = parsedMessage.payload.sender;
+    const room = parsedMessage.payload.roomId;
+    const sender = parsedMessage.payload.sender;
 
-        // console.log('BroadCasting to room : ', room)
+    // console.log('BroadCasting to room : ', room)
 
-        // Check if room exists before trying to send messages
-        if (rooms[room]) {
-            rooms[room].sockets.map((socket) => {
-                socket.send(JSON.stringify(parsedMessage))
-            })
-        }
-
+    // Check if room exists before trying to send messages
+    if (rooms[room]) {
+        rooms[room].sockets.map((socket) => {
+            socket.send(JSON.stringify(parsedMessage))
+        })
     }
+
+    // }
 }
 
 wss.on("connection", function (socket) { // not the native WebSocket of nodejs or Browser, this is imported from the ws library
 
     socket.on("error", console.error);
 
-    socket.on("close", function (socket: WebSocket) {
-        Object.keys(rooms).forEach(roomId => {
-            if (rooms[roomId]) {
-                rooms[roomId].sockets = rooms[roomId].sockets.filter(s => s !== socket)
-                if (rooms[roomId].sockets.length === 0) {
-                    delete rooms[roomId];
+    // socket.on("close", function (socket: WebSocket) {
+    //     const room = socketToRoom.get(socket)
+    //     if (room && rooms[room]) {
+    //         const leavingUser = rooms[room].users.find(u => u.socket === socket)
+    //         rooms[room].sockets = rooms[room].sockets.filter(s => s !== socket)
+
+    //         if (leavingUser && rooms[room].users.length > 0) {
+    //             const memberLeftMessage = {
+    //                 type: 'leave',
+    //                 payload: {
+    //                     username: leavingUser.username,
+    //                     roomId: room,
+    //                     members: rooms[room].users.map(u => u.username)
+    //                 }
+    //             }
+
+    //             rooms[room].sockets.forEach(s => {
+    //                 s.send(JSON.stringify(memberLeftMessage))
+    //             })
+
+    //             if (rooms[room].sockets.length === 0) {
+    //                 delete rooms[room]
+    //             }
+    //         }
+
+    //     }
+    //     // Object.keys(rooms).forEach(roomId => {
+    //     //     if (rooms[roomId]) {
+    //     //         rooms[roomId].sockets = rooms[roomId].sockets.filter(s => s !== socket)
+    //     //         if (rooms[roomId].sockets.length === 0) {
+    //     //             delete rooms[roomId];
+    //     //         }
+    //     //     }
+    //     // })
+    //     socketToRoom.delete(socket)
+    //     allSockets.pop()
+    //     console.log('Socket disconnected and sockets length: ', allSockets.length)
+    // })
+    socket.on("close", () => {
+        const room = socketToRoom.get(socket);
+        if (room && rooms[room]) {
+            // Find and remove the specific user
+            const userIndex = rooms[room].users.findIndex(u => u.socket === socket);
+            const socketIndex = rooms[room].sockets.findIndex(s => s === socket);
+
+            if (userIndex !== -1) {
+                const leavingUser = rooms[room].users[userIndex];
+                rooms[room].users.splice(userIndex, 1);
+
+                if (socketIndex !== -1) {
+                    rooms[room].sockets.splice(socketIndex, 1);
+                }
+
+                // Notify remaining users
+                if (rooms[room].users.length > 0) {
+                    const memberLeftMessage = {
+                        type: "leave",
+                        payload: {
+                            username: leavingUser.username,
+                            roomId: room,
+                            members: rooms[room].users.map(u => u.username)
+                        }
+                    };
+
+                    rooms[room].sockets.forEach(s => {
+                        s.send(JSON.stringify(memberLeftMessage));
+                    });
                 }
             }
-        })
-        socketToRoom.delete(socket)
+
+            // Remove empty rooms
+            if (rooms[room].users.length === 0) {
+                delete rooms[room];
+            }
+        }
+        socketToRoom.delete(socket);
         allSockets.pop()
-        console.log('Socket disconnected and sockets length: ', allSockets.length)
-    })
+        console.log('Socket disconnected and cleaned up');
+    });
 
     socket.on("message", (message) => {
 
@@ -121,20 +188,106 @@ wss.on("connection", function (socket) { // not the native WebSocket of nodejs o
 
         if (parsedMessage.type == 'join') {
             const room = parsedMessage.payload.roomId;
-            //first room
+            const username = parsedMessage.payload.sender;
+            if (socketToRoom.get(socket) === room) {
+                console.log('Socket already in room', room)
+                return;
+            }
+
+            // remove the socket from old rooms before joining
+            const currentRoom = socketToRoom.get(socket);
+            if (currentRoom && rooms[currentRoom]) {
+                rooms[currentRoom].sockets = rooms[currentRoom].sockets.filter(s => s !== socket)
+                rooms[currentRoom].users = rooms[currentRoom].users.filter(u => u.socket !== socket)
+
+                const userLeftMessage = {
+                    type: "leave",
+                    payload: {
+                        username: username,
+                        roomId: currentRoom,
+                        members: rooms[currentRoom].users.map(u => u.username)
+                    }
+                }
+
+                rooms[currentRoom].sockets.forEach(s => {
+                    s.send(JSON.stringify(userLeftMessage))
+                })
+
+            }
+
+
+
+            //room created only ones
             if (!rooms[room]) {
                 rooms[room] = {
-                    sockets: []
+
+                    sockets: [],
+                    users: []
+                }
+            }
+
+            const existingUserIndex = rooms[room].users.findIndex(u => u.username === username);
+            if (existingUserIndex !== -1) {
+                // Remove the old entry for this user
+                rooms[room].users.splice(existingUserIndex, 1);
+                const existingSocketIndex = rooms[room].sockets.findIndex(s => s === rooms[room].users[existingUserIndex]?.socket);
+                if (existingSocketIndex !== -1) {
+                    rooms[room].sockets.splice(existingSocketIndex, 1);
                 }
             }
             rooms[room].sockets.push(socket);
+            rooms[room].users.push({ username, socket });
             socketToRoom.set(socket, room)
+
+            const currentMembers = rooms[room].users.map(u => u.username)
+            const memberListMessage = {
+                type: "memberslist",
+                payload: {
+                    members: currentMembers,
+                    roomId: room
+                }
+            }
+
+            socket.send(JSON.stringify(memberListMessage))
 
             allSockets.push({
                 socket,
-                room : parsedMessage.payload.roomId,
+                room: parsedMessage.payload.roomId,
                 userInfo: parsedMessage.payload.userInfo
             });
+
+            const memberJoinedMessage = {
+                type: 'memberjoined',
+                payload: {
+                    username: username,
+                    roomId: room,
+                    members: currentMembers
+                }
+            }
+            rooms[room].sockets.forEach(s => {
+                if (s !== socket) {
+                    s.send(JSON.stringify(memberJoinedMessage))
+                }
+            })
+
+            console.log(`${username} joined the room ${room}`)
+            relayerSocket.send(JSON.stringify(parsedMessage))
+
+        }
+        else if (parsedMessage.type === 'typing') {
+            const room = parsedMessage.payload.roomId
+            if (rooms[room]) {
+                rooms[room].sockets.filter(sct => sct !== socket).forEach(sct => {
+                    sct.send(JSON.stringify(parsedMessage))
+                })
+            }
+
+            relayerSocket.send(JSON.stringify(parsedMessage))
+        }
+        if (parsedMessage.type === 'leave') {
+            // Handle explicit leave message
+            // (though the socket.on("close") handler will also trigger)
+            console.log(`User ${parsedMessage.payload.sender} explicitly left room ${parsedMessage.payload.roomId}`);
         }
         // if(parsedMessage.type == 'chat'){
         //     const room = parsedMessage.payload.roomId ; 
@@ -158,28 +311,28 @@ wss.on("connection", function (socket) { // not the native WebSocket of nodejs o
 
 
         //if it is chat message, forward to relayer
-        if (parsedMessage.type === 'chat') {
-            const room = parsedMessage.payload.roomId
-            if (!parsedMessage.payload.sender) {
-                parsedMessage.payload.sender = parsedMessage.payload.user?.username || 'Unknown'
-            }
-            if (rooms[room]) {
-                // rooms[room].sockets.filter(roomSocket => roomSocket !== socket).forEach(roomSocket => {
-                rooms[room].sockets.forEach(roomSocket => {
-                    roomSocket.send(JSON.stringify(parsedMessage))
-                    console.log(`Message Sent and sockets length ${allSockets.length}`)
-                })
-            }
-
-
-            // console.log('Forwarding chat message to relayer:', parsedMessage.payload.message);
-
-            relayerSocket.send(JSON.stringify(parsedMessage))
+        // if (parsedMessage.type === 'chat') {
+        const room = parsedMessage.payload.roomId
+        if (!parsedMessage.payload.sender) {
+            parsedMessage.payload.sender = parsedMessage.payload.user?.username || 'Unknown'
         }
+        if (rooms[room]) {
+            // rooms[room].sockets.filter(roomSocket => roomSocket !== socket).forEach(roomSocket => {
+            rooms[room].sockets.forEach(roomSocket => {
+                roomSocket.send(JSON.stringify(parsedMessage))
+                console.log(`Message Sent and sockets length ${allSockets.length}`)
+            })
+        }
+
+
+        // console.log('Forwarding chat message to relayer:', parsedMessage.payload.message);
+
+        relayerSocket.send(JSON.stringify(parsedMessage))
+        // }
 
     })
 
-    
+
 
 
 })
