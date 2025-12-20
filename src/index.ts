@@ -18,8 +18,8 @@ interface UserType {
     userInfo: UserInfoType
 }
 
-// const wss = new WebSocketServer({ port: 8080 })
 const wss = new WebSocketServer({ port: 8080 })
+// const wss = new WebSocketServer({ port: 8081 })
 const rooms: Record<string, Room> = {
 
     // room1 : {
