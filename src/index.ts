@@ -1,10 +1,12 @@
 import { WebSocketServer, WebSocket } from "ws";
-
-
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv"
+dotenv.config()
+// app.listen(port, () => {
+//     console.log('authentication listening to port: ', port)
+// })
 
 type UserInfoType = {
-    fullname: string,
-    email: string,
     username: string,
 }
 interface Room {
@@ -18,7 +20,22 @@ interface UserType {
     userInfo: UserInfoType
 }
 
-const wss = new WebSocketServer({ port: 8080 })
+const PORT = 8080
+
+const JWT_SECRET = process.env.JWT_SECRET!
+
+function verifyToken(token: string | null) {
+    if (!token) return { valid: false }
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET) as { id: number, username: string }
+        return { valid: true, userid: decoded.id, username: decoded.username }
+    } catch (err) {
+        console.log("token: ", token)
+        console.error("Token verification error: ", err)
+        return { valid: false }
+    }
+}
+const wss = new WebSocketServer({ port: PORT })
 // const wss = new WebSocketServer({ port: 8081 })
 const rooms: Record<string, Room> = {
 
@@ -71,13 +88,13 @@ relayerSocket.onclose = () => {
 }
 relayerSocket.onmessage = (event) => {
     const message = event.data.toString();
-    
-    
+
+
     const parsedMessage = JSON.parse(message);
     console.log('Recieved from Relayer : ', parsedMessage)
-    
 
-        
+
+
     const room = parsedMessage.payload.roomId;
     const sender = parsedMessage.payload.sender;
 
@@ -87,10 +104,24 @@ relayerSocket.onmessage = (event) => {
             socket.send(JSON.stringify(parsedMessage))
         })
     }
-    
+
 }
 
-wss.on("connection", function (socket) { // not the native WebSocket of nodejs or Browser, this is imported from the ws library
+wss.on("connection", function (socket, req) { // not the native WebSocket of nodejs or Browser, this is imported from the ws library
+    const token = new URL(req.url!, "http://localhost").searchParams.get("token")
+    
+    const result = verifyToken(token);
+
+    if (!result.valid) {
+        socket.close(1008, "Unauthorized");
+        return;
+    }
+
+    (socket as any).user = {
+        id: result.userid,
+        username: result.username
+    };
+
     socket.on("error", console.error);
 
     socket.on("close", () => {
@@ -131,7 +162,7 @@ wss.on("connection", function (socket) { // not the native WebSocket of nodejs o
             }
         }
         socketToRoom.delete(socket);
-        allSockets.pop()
+        allSockets.filter(s => s.socket !== socket)
         console.log('Socket disconnected and cleaned up');
     });
 
@@ -256,13 +287,13 @@ wss.on("connection", function (socket) { // not the native WebSocket of nodejs o
             // (though the socket.on("close") handler will also trigger)
             console.log(`User ${parsedMessage.payload.sender} explicitly left room ${parsedMessage.payload.roomId}`);
             const userLeftMessage = {
-                    type: "leave",
-                    payload: {
-                        username: username,
-                        roomId: room,
-                        members: currentMembers
-                    }
+                type: "leave",
+                payload: {
+                    username: username,
+                    roomId: room,
+                    members: currentMembers
                 }
+            }
             relayerSocket.send(JSON.stringify(userLeftMessage))
 
         }
@@ -289,22 +320,22 @@ wss.on("connection", function (socket) { // not the native WebSocket of nodejs o
 
         //if it is chat message, forward to relayer
         if (parsedMessage.type === 'chat') {
-        const room = parsedMessage.payload.roomId
-        if (!parsedMessage.payload.sender) {
-            parsedMessage.payload.sender = parsedMessage.payload.user?.username || 'Unknown'
-        }
-        if (rooms[room]) {
-            // rooms[room].sockets.filter(roomSocket => roomSocket !== socket).forEach(roomSocket => {
-            rooms[room].sockets.forEach(roomSocket => {
-                roomSocket.send(JSON.stringify(parsedMessage))
-                console.log(`Message Sent ${JSON.stringify(parsedMessage)} and sockets length ${allSockets.length}`)
-            })
-        }
+            const room = parsedMessage.payload.roomId
+            if (!parsedMessage.payload.sender) {
+                parsedMessage.payload.sender = parsedMessage.payload.user?.username || 'Unknown'
+            }
+            if (rooms[room]) {
+                // rooms[room].sockets.filter(roomSocket => roomSocket !== socket).forEach(roomSocket => {
+                rooms[room].sockets.forEach(roomSocket => {
+                    roomSocket.send(JSON.stringify(parsedMessage))
+                    console.log(`Message Sent ${JSON.stringify(parsedMessage)} and sockets length ${allSockets.length}`)
+                })
+            }
 
 
-        // console.log('Forwarding chat message to relayer:', parsedMessage.payload.message);
+            // console.log('Forwarding chat message to relayer:', parsedMessage.payload.message);
 
-        relayerSocket.send(JSON.stringify(parsedMessage))
+            relayerSocket.send(JSON.stringify(parsedMessage))
         }
 
     })
