@@ -70,46 +70,79 @@ const socketToRoom = new Map<WebSocket, string>()
 // }
 
 const RELAYER_URI = 'ws://localhost:3001'
-const relayerSocket = new WebSocket(RELAYER_URI)
 
-relayerSocket.onopen = () => {
+let relayerSocket: WebSocket | null = null
+let reconnectTimeout: NodeJS.Timeout | null = null
+function connectToRelayer() {
 
-    console.log('Connected to relayer');
+    console.log('Connecting to relayer');
+    relayerSocket = new WebSocket(RELAYER_URI)
 
-}
+    relayerSocket.onopen = () => {
 
-relayerSocket.onerror = (error) => {
-    console.error('Relayer connection error:', error);
-}
+        console.log('Connected to relayer');
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout)
+            reconnectTimeout = null
+        }
 
-relayerSocket.onclose = () => {
+        Object.keys(rooms).forEach(roomId => {
+        relayerSocket!.send(JSON.stringify({
+            type: "join",
+            payload: { roomId }
+        }))
+    })
 
-    console.log('Relayer connection closed');
-}
-relayerSocket.onmessage = (event) => {
-    const message = event.data.toString();
+        
 
-
-    const parsedMessage = JSON.parse(message);
-    console.log('Recieved from Relayer : ', parsedMessage)
-
-
-
-    const room = parsedMessage.payload.roomId;
-    const sender = parsedMessage.payload.sender;
-
-    // Check if room exists before trying to send messages
-    if (rooms[room]) {
-        rooms[room].sockets.map((socket) => {
-            socket.send(JSON.stringify(parsedMessage))
-        })
     }
 
+    relayerSocket.onerror = (error) => {
+        console.error('Relayer connection error:', error);
+    }
+
+    relayerSocket.onclose = () => {
+
+        console.log('Relayer connection closed');
+        reconnectTimeout = setTimeout(() => {
+            connectToRelayer()
+        }, 3000)
+    }
+    relayerSocket.onmessage = (event) => {
+        const message = event.data.toString();
+
+
+        const parsedMessage = JSON.parse(message);
+        console.log('Recieved from Relayer : ', parsedMessage)
+
+
+
+        const room = parsedMessage.payload.roomId;
+        const sender = parsedMessage.payload.sender;
+
+        // Check if room exists before trying to send messages
+        if (rooms[room]) {
+            rooms[room].sockets.map((socket) => {
+                socket.send(JSON.stringify(parsedMessage))
+            })
+        }
+
+    }
 }
+
+connectToRelayer()
+
+function sendToRelayer(data: any) {
+    if (relayerSocket && relayerSocket.readyState === WebSocket.OPEN) {
+        relayerSocket.send(JSON.stringify(data))
+    }
+}
+
+
 
 wss.on("connection", function (socket, req) { // not the native WebSocket of nodejs or Browser, this is imported from the ws library
     const token = new URL(req.url!, "http://localhost").searchParams.get("token")
-    
+
     const result = verifyToken(token);
 
     if (!result.valid) {
@@ -199,7 +232,7 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
                 rooms[currentRoom].sockets.forEach(s => {
                     s.send(JSON.stringify(userLeftMessage))
                 })
-                relayerSocket.send(JSON.stringify(userLeftMessage))
+                sendToRelayer(userLeftMessage)
 
 
             }
@@ -240,7 +273,7 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
             }
 
             socket.send(JSON.stringify(memberListMessage))
-            relayerSocket.send(JSON.stringify(memberListMessage))
+            sendToRelayer(memberListMessage)
 
 
             // allSockets.push({
@@ -263,8 +296,8 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
             })
 
             console.log(`${username} joined the room ${room}`)
-            relayerSocket.send(JSON.stringify(parsedMessage))
-            relayerSocket.send(JSON.stringify(memberJoinedMessage))
+            sendToRelayer(parsedMessage)
+            sendToRelayer(memberJoinedMessage)
 
 
         }
@@ -276,7 +309,7 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
                 })
             }
 
-            relayerSocket.send(JSON.stringify(parsedMessage))
+            sendToRelayer(parsedMessage)
         }
         else if (parsedMessage.type === 'leave') {
             const room = parsedMessage.payload.roomId
@@ -294,7 +327,7 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
                     members: currentMembers
                 }
             }
-            relayerSocket.send(JSON.stringify(userLeftMessage))
+            sendToRelayer(userLeftMessage)
 
         }
         // if(parsedMessage.type == 'chat'){
@@ -335,7 +368,7 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
 
             // console.log('Forwarding chat message to relayer:', parsedMessage.payload.message);
 
-            relayerSocket.send(JSON.stringify(parsedMessage))
+            sendToRelayer(parsedMessage)
         }
 
     })
