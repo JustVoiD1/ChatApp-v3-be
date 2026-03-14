@@ -20,7 +20,7 @@ interface UserType {
     userInfo: UserInfoType
 }
 
-const PORT = 8080
+const PORT = 8081
 
 const JWT_SECRET = process.env.JWT_SECRET!
 
@@ -50,7 +50,7 @@ const rooms: Record<string, Room> = {
     // }
 
 }
-let allSockets: UserType[] = [];
+// let allSockets: UserType[] = [];
 
 const socketToRoom = new Map<WebSocket, string>()
 //message : {
@@ -162,7 +162,7 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
             }
         }
         socketToRoom.delete(socket);
-        allSockets.filter(s => s.socket !== socket)
+        // allSockets.filter(s => s.socket !== socket)
         console.log('Socket disconnected and cleaned up');
     });
 
@@ -243,11 +243,11 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
             relayerSocket.send(JSON.stringify(memberListMessage))
 
 
-            allSockets.push({
-                socket,
-                room: parsedMessage.payload.roomId,
-                userInfo: parsedMessage.payload.userInfo
-            });
+            // allSockets.push({
+            //     socket,
+            //     room: parsedMessage.payload.roomId,
+            //     userInfo: parsedMessage.payload.userInfo
+            // });
             const memberJoinedMessage = {
                 type: 'memberjoined',
                 payload: {
@@ -328,7 +328,7 @@ wss.on("connection", function (socket, req) { // not the native WebSocket of nod
                 // rooms[room].sockets.filter(roomSocket => roomSocket !== socket).forEach(roomSocket => {
                 rooms[room].sockets.forEach(roomSocket => {
                     roomSocket.send(JSON.stringify(parsedMessage))
-                    console.log(`Message Sent ${JSON.stringify(parsedMessage)} and sockets length ${allSockets.length}`)
+                    console.log(`Message Sent ${JSON.stringify(parsedMessage)} and sockets length ${socketToRoom.size}`)
                 })
             }
 
