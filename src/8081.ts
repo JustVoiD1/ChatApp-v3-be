@@ -2,9 +2,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv"
 dotenv.config()
-// app.listen(port, () => {
-//     console.log('authentication listening to port: ', port)
-// })
+
 
 type UserInfoType = {
     username: string,
@@ -69,13 +67,13 @@ const socketToRoom = new Map<WebSocket, string>()
 // }
 // }
 
-const RELAYER_URI = 'ws://localhost:3001'
+const RELAYER_URI = process.env.RELAYER_URI!
 
 let relayerSocket: WebSocket | null = null
 let reconnectTimeout: NodeJS.Timeout | null = null
 function connectToRelayer() {
 
-    console.log('Connecting to relayer');
+    console.log('Trying to connect to relayer');
     relayerSocket = new WebSocket(RELAYER_URI)
 
     relayerSocket.onopen = () => {

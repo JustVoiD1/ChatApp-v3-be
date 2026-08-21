@@ -5,8 +5,10 @@
   "scripts": {
     "test": "jest",
     "build": "npx tsc -b",
-    "start": "node ./dist/index.js",
-    "dev": "npm run build && npm run start"
+    "start1": "node ./dist/8080.js",
+    "start2": "node ./dist/8081.js",
+    "dev1": "npm run build && npm run start1",
+    "dev2": "npm run build && npm run start2"
   },
   "keywords": [],
   "author": "",
